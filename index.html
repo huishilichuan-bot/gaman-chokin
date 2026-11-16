@@ -10,13 +10,13 @@
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="我慢貯金" />
-  <meta name="description" content="コンビニ、コーヒー、衝動買い。我慢した小さな出費を「貯金」として見える化するアプリ。データはこの端末にだけ保存されます。" />
+  <meta name="description" content="コンビニ、コーヒー、タバコ、衝動買い。我慢した出費を2タップで「貯金」として見える化。森が育ち、13種類のゲームで遊べます。データはこの端末にだけ保存されます。" />
   <meta name="format-detection" content="telephone=no" />
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32.png" />
   <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
   <title>我慢貯金</title>
-  <link rel="stylesheet" href="./styles.css?v=1.0.0" />
+  <link rel="stylesheet" href="./styles.css?v=3.0.0" />
 </head>
 <body>
   <div id="app" aria-live="off">
@@ -34,16 +34,30 @@
       <section class="view active" id="view-home" data-view="home" aria-label="ホーム"></section>
       <section class="view" id="view-stats" data-view="stats" aria-label="分析"></section>
       <section class="view" id="view-goals" data-view="goals" aria-label="目標"></section>
-      <section class="view" id="view-growth" data-view="growth" aria-label="実績"></section>
+      <section class="view" id="view-growth" data-view="growth" aria-label="森"></section>
+      <section class="view" id="view-games" data-view="games" aria-label="ゲーム"></section>
       <section class="view" id="view-settings" data-view="settings" aria-label="設定"></section>
     </main>
     <nav class="tabbar" id="tabbar" aria-label="メインメニュー"></nav>
   </div>
   <div id="onboarding" class="onboarding" hidden></div>
+  <div class="game-layer" id="game-layer" hidden>
+    <div class="gl-head">
+      <button type="button" class="gl-close" id="gl-close">✕ やめる</button>
+      <h3 id="gl-title"></h3>
+    </div>
+    <div class="gl-body" id="gl-body"></div>
+    <div class="gl-result" id="gl-result" hidden></div>
+  </div>
   <div id="sheet-root"></div>
   <div id="toast-root" class="toast-root" role="status" aria-live="polite"></div>
   <div id="fx-root" aria-hidden="true"></div>
   <noscript><p style="padding:24px">このアプリを使うにはJavaScriptを有効にしてください。</p></noscript>
-  <script src="./app.js?v=1.0.0" defer></script>
+  <script src="./forest.js?v=3.0.0" defer></script>
+  <script src="./games.js?v=3.0.0" defer></script>
+  <script src="./chess.js?v=3.0.0" defer></script>
+  <script src="./games-board.js?v=3.0.0" defer></script>
+  <script src="./games-action.js?v=3.0.0" defer></script>
+  <script src="./app.js?v=3.0.0" defer></script>
 </body>
 </html>
