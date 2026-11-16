@@ -1,15 +1,15 @@
-const CACHE = "gaman-chokin-v3.0.0";
+const CACHE = "gaman-chokin-v3.1.0";
 const ASSETS = [
   "./",
   "./index.html",
   "./legal.html",
-  "./styles.css?v=3.0.0",
-  "./forest.js?v=3.0.0",
-  "./games.js?v=3.0.0",
-  "./chess.js?v=3.0.0",
-  "./games-board.js?v=3.0.0",
-  "./games-action.js?v=3.0.0",
-  "./app.js?v=3.0.0",
+  "./styles.css?v=3.1.0",
+  "./forest.js?v=3.1.0",
+  "./games.js?v=3.1.0",
+  "./chess.js?v=3.1.0",
+  "./games-board.js?v=3.1.0",
+  "./games-action.js?v=3.1.0",
+  "./app.js?v=3.1.0",
   "./manifest.webmanifest",
   "./icons/favicon-32.png",
   "./icons/apple-touch-icon.png",

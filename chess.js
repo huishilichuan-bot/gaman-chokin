@@ -589,7 +589,7 @@
         const cls = ["sq", light ? "l" : "d"];
         if (sq === ui.selected) cls.push("sel");
         if (ui.lastMove && (sq === ui.lastMove.from || sq === ui.lastMove.to)) cls.push("last");
-        if (sq === checkSq) cls.push("check");
+        if (sq === checkSq) cls.push("incheck");
         if (ui.hintMove && (sq === ui.hintMove.from || sq === ui.hintMove.to)) cls.push("hint");
         const tgt = ui.targets.find((m) => m.to === sq);
         if (tgt) cls.push(tgt.c ? "cap" : "tgt");

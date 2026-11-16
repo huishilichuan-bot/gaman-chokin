@@ -455,8 +455,8 @@
         if (last && (last.f === i || last.t === i)) cls.push("last");
         if (tg.some((m) => m.t === i)) cls.push(pc ? "cap" : "tgt");
         if (hint && (hint.f === i || hint.t === i)) cls.push("hint");
-        if (i === chk) cls.push("check");
-        return '<button type="button" class="' + cls.join(" ") + '" data-i="' + i + '" aria-label="' + sqName(i) + (pc ? (own(pc) ? " 後手の" : " 先手の") + pieceLabel(pc) : "") + '">' + (pc ? '<span class="koma' + (own(pc) ? " gote" : "") + (isProm(pc) ? " pr" : "") + '">' + pieceLabel(pc) + "</span>" : "") + "</button>";
+        if (i === chk) cls.push("incheck");
+        return '<button type="button" class="' + cls.join(" ") + '" data-i="' + i + '" aria-label="' + sqName(i) + (pc ? (own(pc) ? " 後手の" : " 先手の") + pieceLabel(pc) : "") + '">' + (pc ? '<span class="koma' + (own(pc) ? " gote" : " sente") + (isProm(pc) ? " pr" : "") + '"><b>' + pieceLabel(pc) + "</b></span>" : "") + "</button>";
       }).join("");
       const hand = (o) => [RK, B, G, S, P].filter((t) => pos.h[o][t]).map((t) => '<button type="button" class="sh-h' + (o === 0 && sel && sel.d === t ? " sel" : "") + (o === 0 && hint && hint.d === t ? " hint" : "") + '" data-h="' + t + '"' + (o ? " disabled" : "") + ">" + HNAME[t] + (pos.h[o][t] > 1 ? "<small>×" + pos.h[o][t] + "</small>" : "") + "</button>").join("") || '<span class="small faint">持ち駒なし</span>';
       g.$("#sh-hand-cpu").innerHTML = hand(1); g.$("#sh-hand-me").innerHTML = hand(0);
@@ -513,6 +513,9 @@
     g.onHint = () => { if (hints <= 0 || pos.turn !== 0) return; const m = shBest(pos, "hard", true); if (!m) return; hints--; hint = m; render(); g.status("ヒント：" + (m.f < 0 ? HNAME[m.d] + "を" + sqName(m.t) + "に打つ" : sqName(m.f) + " → " + sqName(m.t) + (m.pr ? "成" : ""))); };
     g.onUndo = () => { if (undos <= 0 || !hist.length || pos.turn !== 0) return; const h = hist.pop(); pos.b = h.b; pos.h = h.h; pos.turn = 0; last = h.last; plies = h.plies; seen.clear(); h.seen.forEach((v, k) => seen.set(k, v)); undos--; sel = null; tg = []; hint = null; statusTurn(); render(); };
     g.debug = { pos: () => pos, legal: () => (pos.turn === 0 && !thinking && !g.over ? legal(pos, true) : []), play: (m) => doMove(m), thinking: () => thinking,
+      click: (i) => boardEl.querySelector('[data-i="' + i + '"]').click(),
+      setPos: (b, h, turn) => { pos.b = b.slice(); pos.h = h ? h.map((x) => x.slice()) : [[0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0]]; pos.turn = turn || 0; sel = null; tg = []; last = null; seen.clear(); render(); statusTurn(); },
+      codes: { K, G, S, B, RK, P, PROM, GOTE },
       forceWin: () => { pos.b = Array(25).fill(0); pos.b[2] = GOTE | K; pos.b[12] = G; pos.b[13] = G; pos.b[24] = K; pos.h = [[0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0]]; pos.turn = 0; render(); const m = legal(pos, true).find((x) => x.f === 13 && x.t === 7); doMove(m); } };
     statusTurn(); render();
   };

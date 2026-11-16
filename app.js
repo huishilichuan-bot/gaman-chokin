@@ -1,9 +1,9 @@
-/* 我慢貯金 v3.0.0 — データはすべてこの端末（localStorage）にだけ保存されます */
+/* 我慢貯金 v3.1.0 — データはすべてこの端末（localStorage）にだけ保存されます */
 (() => {
   "use strict";
 
-  const VERSION = "3.0.0";
-  const SCHEMA = 3;
+  const VERSION = "3.1.0";
+  const SCHEMA = 4; // v3.1: なかまガチャ（キラ石・かけら）
   const KEY = "gaman-chokin:v3";
   const OLD_KEYS = ["gaman-chokin:v1"]; // v1/v2 のデータ。読み込み後も消さずに残す（安全のため）
   const DAY = 86400000;
@@ -108,6 +108,16 @@
   const SQUAT_XP = 25, SQUAT_DAILY = 3, WISH_XP = 20, WISH_WAIT = 86400000;
   const GAME_XP_CAP = 30;
   const GAME_WIN_XP = { easy: 3, normal: 6, hard: 12, ultra: 30 };
+  // 🔮キラ石（アプリ内だけの石。お金では買えない）。1日の上限があり、ゲームだけでは貯金より速く増えない
+  const KIRA = { perRecord: 3, squat: 2, recordCap: 30, perMission: 10, game: { easy: 2, normal: 4, hard: 8, ultra: 15 }, gameCap: 20, dailyCap: 80, welcome: 300 };
+  const GACHA_COST = { 1: 30, 10: 300 };
+  // 提供割合（%）：ノーマル, レア, スーパーレア, ウルトラレア, 激レア, 伝説, 神話
+  const GACHA_RATES = [40, 30, 15, 8.5, 4, 2, 0.5];
+  const GACHA_RATES_SR = (() => { const t = GACHA_RATES.slice(2).reduce((a, b) => a + b, 0); return GACHA_RATES.map((r, i) => (i >= 2 ? (r / t) * 100 : 0)); })();
+  const SHARD_DUP = [1, 2, 3, 4, 6, 8, 10]; // かぶったときにもらえる「かけら」
+  const STAR_COST = [0, 5, 10, 15, 20]; // ★s → ★s+1 に必要なかけら
+  const STAR_MAX = 5;
+  const RARITY_BONUS = [0, 0.02, 0.04, 0.06, 0.08, 0.1, 0.12]; // パートナーのレアリティによるゲームの有利（レベルの有利に足す。上限は同じ）
   const DIFFS = [{ id: "easy", name: "弱い" }, { id: "normal", name: "中" }, { id: "hard", name: "強い" }, { id: "ultra", name: "ウルトラ最強" }];
   const EMOJIS = ["🏪", "☕", "🥤", "🍰", "🍱", "🍜", "🍔", "🛵", "🛍️", "👗", "💄", "📚", "🎮", "🎰", "🚕", "⛽", "📱", "📺", "🍺", "🍷", "🚬", "🎫", "🧋", "🍩", "🍫", "🍟", "💊", "🎁", "🐾", "🧴", "✈️", "💸"];
   const TRIGGERS = ["ストレス", "疲れていた", "なんとなく・習慣", "ひまだった", "誘われた", "ご褒美のつもり", "お腹がすいていた", "セール・限定に弱い"];
@@ -146,6 +156,8 @@
     games: {},
     selectedChar: "mori",
     seenChars: ["mori"],
+    gacha: { spent: 0, pulls: 0, bonus: KIRA.welcome, since: now(), log: [] },
+    chars: {},
   });
   let state = load();
 
@@ -183,6 +195,15 @@
       if (!r.group) r.group = r.itemId && byId[r.itemId] ? guessGroup(byId[r.itemId]) : "other";
     });
     if (!out.seenChars.includes("mori")) out.seenChars.unshift("mori");
+    // v3 → v3.1: なかまガチャ。キラ石は移行した時から数える（過去の記録はさかのぼらない）。はじめてボーナスつき
+    const ga = out.gacha && typeof out.gacha === "object" && !Array.isArray(out.gacha) ? out.gacha : {};
+    out.gacha = { spent: Math.max(0, +ga.spent || 0), pulls: Math.max(0, +ga.pulls || 0), bonus: ga.bonus == null ? KIRA.welcome : Math.max(0, +ga.bonus || 0), since: +ga.since > 0 ? +ga.since : now(), log: Array.isArray(ga.log) ? ga.log.slice(0, 30) : [] };
+    if (!out.chars || typeof out.chars !== "object" || Array.isArray(out.chars)) out.chars = {};
+    Object.keys(out.chars).forEach((id) => {
+      const e = out.chars[id];
+      if (!e || typeof e !== "object" || (window.GCArt && !GCArt.CHARACTERS.some((c) => c.id === id))) { delete out.chars[id]; return; }
+      out.chars[id] = { n: Math.max(0, Math.floor(+e.n || 0)), shards: Math.max(0, Math.floor(+e.shards || 0)), star: clamp(Math.floor(+e.star || 1), 1, STAR_MAX) };
+    });
     if (!window.GCArt || !GCArt.CHARACTERS.some((c) => c.id === out.selectedChar)) out.selectedChar = "mori";
     out.v = SCHEMA;
     return out;
@@ -421,7 +442,7 @@
     { id: "win1", e: "🎲", n: "ゲームで初勝利", ok: () => gameWinsTotal() > 0 },
     { id: "ultra1", e: "🌠", n: "ウルトラ最強に勝利", ok: () => ultraWins() > 0 },
     { id: "allgames", e: "🕹️", n: "13種類のゲームを遊んだ", ok: () => Object.values(state.games).filter((g) => sum(Object.values(g || {}), (d) => (d && d.plays) || 0) > 0).length >= 13 },
-    { id: "char3", e: "🧸", n: "なかまが3人", ok: () => unlockedChars().length >= 3 },
+    { id: "char3", e: "🧸", n: "条件でなかま3人に会えた", ok: () => condChars().length >= 3 }, // ガチャの収集では取れない（コンプリート報酬なし）
   ];
   // ---------- rate limit ----------
   const MIN_GAP_MS = 15000;
@@ -748,9 +769,8 @@
     const me = GCArt.charById(state.selectedChar);
     h += '<div class="card level-card char-card"><div class="char-big">' + GCArt.charSvg(me.id, x.lv, { size: 92 }) + '</div><div class="grow"><div class="small muted">' + esc(me.name) + "・" + GCArt.stageName(x.lv) + '</div><div class="row" style="gap:8px;align-items:baseline"><b class="num" style="font-size:26px">Lv.' + x.lv + '</b><span style="font-weight:700">' + esc(x.title) + '</span></div><div class="xpbar"><i style="width:' + (x.pct * 100).toFixed(1) + '%"></i></div><div class="small muted num" style="margin-top:4px">' + (x.lv >= 50 ? "最高レベル" : fmt(x.xp) + " / " + fmt(x.next) + " XP") + "</div></div></div>";
     h += '<div class="note">XPは<b>実際に移した我慢額</b>が満額（10円=1XP）、まだ移していない分は3割、タイマー1分=1XP、ミッション、スクワット証明（+' + SQUAT_XP + "）、欲しいもの我慢（+" + WISH_XP + "）、ゲーム（1日" + GAME_XP_CAP + "まで）で増えます。プレミアムでも強さは買えません。</div>";
-    h += '<div class="sec-title"><span>なかま</span><span class="small faint num">' + unlockedChars().length + " / " + GCArt.CHARACTERS.length + '</span></div><div class="chars">' +
-      GCArt.CHARACTERS.map((c) => { const ok = charUnlocked(c.id), sel = c.id === state.selectedChar; return '<button type="button" class="char' + (sel ? " sel" : "") + (ok ? "" : " locked") + '" data-act="char" data-id="' + c.id + '" aria-pressed="' + sel + '"' + (ok ? "" : ' aria-disabled="true"') + ">" + GCArt.charSvg(c.id, ok ? x.lv : 1, { size: 54, locked: !ok }) + '<span class="c-n">' + (ok ? esc(c.name) : "？？？") + '</span><span class="c-s">' + (ok ? (sel ? "いっしょにいる" : esc(c.desc)) : "🔒 " + esc(c.how)) + "</span></button>"; }).join("") + "</div>";
-    h += '<div class="sec-title"><span>レベルによるゲームの有利</span><button type="button" class="link" data-act="go-games">ゲームへ</button></div><div class="card small adv-list">' +
+    h += charsSectionHTML(x.lv);
+    h += '<div class="sec-title"><span>レベルとなかまによるゲームの有利</span><button type="button" class="link" data-act="go-games">ゲームへ</button></div><div class="card small adv-list">' +
       ["climb", "chess", "arena", "memory", "breakout", "mole", "runner", "coin"].map((id) => '<div class="adv-row"><span>' + gameById(id).e + " " + gameById(id).n + "</span><span>" + advText(id) + "</span></div>").join("") + '<div class="small faint" style="margin-top:6px">ほかのゲームもヒント・待ったなどが増えます。最大はLv.50。</div></div>';
     // streak
     const today = startOfDay(now()), ws = weekStart(today), days = activeDays();
@@ -1998,7 +2018,16 @@
     }
     return false;
   }
-  function unlockedChars() { return window.GCArt ? GCArt.CHARACTERS.filter((c) => charUnlocked(c.id)) : []; }
+  function condChars() { return window.GCArt ? GCArt.CHARACTERS.filter((c) => c.special && charUnlocked(c.id)) : []; }
+  function charOwned(id) { return charUnlocked(id) || !!(state.chars[id] && state.chars[id].n > 0); }
+  function charEntry(id) { return state.chars[id] || { n: 0, shards: 0, star: 1 }; }
+  function unlockedChars() { return window.GCArt ? GCArt.CHARACTERS.filter((c) => charOwned(c.id)) : []; }
+  function partnerBonus() {
+    if (!window.GCArt) return 0;
+    const c = GCArt.charById(state.selectedChar);
+    if (!charOwned(c.id)) return 0;
+    return RARITY_BONUS[c.rarity || 0] + (charEntry(c.id).star - 1) * 0.01;
+  }
   function forestTrees(total) {
     const n = Math.min(GCArt.MAX_TREES, Math.floor(total / GCArt.YEN_PER_TREE));
     const br = itemBreakdown(), tot = sum(br, (d) => d.v) || 1;
@@ -2011,8 +2040,8 @@
     return out;
   }
   function advantage() {
-    const L = xpInfo().lv, r = (L - 1) / 49;
-    return { level: L, ratio: r, climbSec: Math.round(30 * r), chessHints: Math.round(5 * r), chessUndo: Math.round(3 * r), arenaHp: Math.round(50 * r), arenaDmg: Math.round(30 * r),
+    const L = xpInfo().lv, pb = partnerBonus(), r = Math.min(1, (L - 1) / 49 + pb);
+    return { level: L, ratio: r, partnerBonus: pb, partner: state.selectedChar, climbSec: Math.round(30 * r), chessHints: Math.round(5 * r), chessUndo: Math.round(3 * r), arenaHp: Math.round(50 * r), arenaDmg: Math.round(30 * r),
       hints: Math.round(5 * r), undos: Math.round(3 * r), peek: Math.round(30 * r) / 10, paddle: Math.round(50 * r), moleSec: Math.round(10 * r), lives: Math.round(2 * r), undo2048: Math.round(3 * r), sudokuHints: Math.round(5 * r), coinMoves: Math.round(6 * r) };
   }
   const GAMES = [
@@ -2058,7 +2087,7 @@
     const el = $("#view-games");
     const a = advantage(), gx = todayGameXp();
     let h = '<h1 class="h-title">ゲーム</h1>';
-    h += '<div class="card games-head"><div class="row" style="gap:12px;align-items:center"><div class="gh-char">' + GCArt.charSvg(state.selectedChar, a.level, { size: 56 }) + '</div><div class="grow"><div class="small muted">Lv.' + a.level + "・" + esc(GCArt.charById(state.selectedChar).name) + '</div><b>レベルが高いほどゲームで有利</b><div class="small muted">我慢でレベルを上げると、ヒントや時間が増えます。</div></div></div>' +
+    h += '<div class="card games-head"><div class="row" style="gap:12px;align-items:center"><div class="gh-char">' + GCArt.charSvg(state.selectedChar, a.level, { size: 56 }) + '</div><div class="grow"><div class="small muted">Lv.' + a.level + "・" + esc(GCArt.charById(state.selectedChar).name) + '</div><b>レベルとなかまでゲームが有利</b><div class="small muted">我慢でレベルを上げると、ヒントや時間が増えます。</div></div></div>' +
       '<div class="verify-line" style="margin-top:12px"><span>今日のゲームXP</span><span class="vbar"><i style="width:' + Math.min(100, (gx / GAME_XP_CAP) * 100).toFixed(0) + '%"></i></span><span class="num">' + gx + " / " + GAME_XP_CAP + "</span></div></div>";
     ["頭脳", "反射", "パズル"].forEach((cat) => {
       h += '<div class="sec-title"><span>' + { 頭脳: "頭を使う", 反射: "反射神経", パズル: "パズル" }[cat] + '</span></div><div class="game-grid">';
@@ -2068,6 +2097,7 @@
       });
       h += "</div>";
     });
+    h += '<button type="button" class="card kira-card" data-act="gacha"><span class="kira-ico" aria-hidden="true">🔮</span><span class="grow"><b>キラ石 <span class="num">' + fmt(kiraInfo().balance) + '</span></b><span class="small muted">勝つとキラ石（弱い+2・中+4・強い+8・ウルトラ最強+15、1日' + KIRA.gameCap + 'まで）。なかまガチャへ</span></span><span aria-hidden="true">›</span></button>';
     h += '<p class="foot">勝つとXP（弱い+3・中+6・強い+12・ウルトラ最強+30）。ゲームのXPは1日' + GAME_XP_CAP + 'までなので、レベルの中心はあくまで我慢です。<br>課金でゲームが有利になることはありません。</p>';
     el.innerHTML = h;
   }
@@ -2075,7 +2105,7 @@
     const g = gameById(id); if (!g) return;
     const rec = gameRec(id), a = advantage();
     const friend = id === "chess" ? '<div class="sec-title"><span>友だちと対戦（リンクで交代）</span></div><div class="actions" style="margin-top:0">' + (window.GFChess && GFChess.hasFriendGame() ? '<button type="button" class="btn block" data-fr="resume">♟️ 友だち対戦の続き</button>' : "") + '<button type="button" class="btn block" data-fr="new">🔗 新しく友だちと対戦する</button></div>' : "";
-    openSheet("<h2>" + g.e + " " + g.n + '</h2><p class="small muted">' + g.d + '</p><div class="adv-box">Lv.' + a.level + " のあなたの有利：" + advText(id, a) + "</div>" +
+    openSheet("<h2>" + g.e + " " + g.n + '</h2><p class="small muted">' + g.d + '</p><div class="adv-box">Lv.' + a.level + (a.partnerBonus ? "＋なかま（+" + Math.round(a.partnerBonus * 100) + "%）" : "") + " のあなたの有利：" + advText(id, a) + "</div>" +
       '<div class="diff-list">' + DIFFS.map((d) => { const r = rec[d.id] || { plays: 0, wins: 0 }; return '<button type="button" class="diff-btn ' + d.id + '" data-diff="' + d.id + '"><span class="grow"><b>' + d.name + "</b><small>" + DIFF_DESC[d.id] + '</small></span><span class="diff-r num">勝ち +' + GAME_WIN_XP[d.id] + "XP<br>" + (r.wins || 0) + "勝/" + (r.plays || 0) + "回</span></button>"; }).join("") + "</div>" + friend, {
       label: g.n,
       mount: (sh) => sh.addEventListener("click", (e) => {
@@ -2108,7 +2138,9 @@
     if (layerOnClose) { const f = layerOnClose; layerOnClose = null; try { f(); } catch (e) {} }
     $("#gl-title").textContent = title;
     $("#gl-result").hidden = true;
-    $("#gl-body").innerHTML = "";
+    // 毎回まっさらな要素に差しかえる（前のゲームのイベントが残って二重に動かないように）
+    const oldBody = $("#gl-body"), fresh = oldBody.cloneNode(false);
+    oldBody.replaceWith(fresh);
     $("#game-layer").hidden = false;
     document.body.classList.add("in-game");
     layerOnClose = onClose || null;
@@ -2130,7 +2162,9 @@
     if (o.reward) {
       if (o.win) {
         rw = '<p class="res-reward">+' + o.reward.xp + " XP</p>";
+        if (o.reward.kira) rw += '<p class="res-reward kira">+' + o.reward.kira + " 🔮キラ石</p>";
         if (o.reward.capped) rw += '<p class="small muted">今日のゲームXPは上限（' + GAME_XP_CAP + "）に達しました。続きは我慢でレベルを上げましょう。</p>";
+        else if (o.reward.kiraCapped && !o.reward.kira) rw += '<p class="small muted">今日ゲームでもらえるキラ石は上限です。我慢の記録でもたまります。</p>';
       } else rw = '<p class="small muted">負けてもXPは減りません。レベルを上げるとゲームで有利になります。</p>';
     }
     box.innerHTML = '<div class="res-card" role="dialog" aria-label="結果"><div class="res-emoji">' + (o.win ? "🏆" : o.draw ? "🤝" : "🌧️") + "</div><h3>" + esc(o.title) + "</h3><p>" + esc(o.text || "") + "</p>" + rw +
@@ -2157,10 +2191,19 @@
       capped = xp < base;
       gd.xp = (+gd.xp || 0) + xp;
     }
+    let kira = 0, kiraCapped = false;
+    if (win) {
+      const before = kiraInfo().earned;
+      const kb = KIRA.game[diff] || 2;
+      const add = Math.max(0, Math.min(kb, KIRA.gameCap - (+gd.kira || 0)));
+      gd.kira = (+gd.kira || 0) + add;
+      kira = kiraInfo().earned - before;
+      kiraCapped = kira < kb;
+    }
     // 古いゲーム日次データは集計して残す（XPは消さない）
     save();
     afterChange({ noRender: true, silent: true });
-    return { xp, capped };
+    return { xp, capped, kira, kiraCapped };
   }
   function copyText(text) {
     const done = () => toast("リンクをコピーしました");
@@ -2190,6 +2233,205 @@
   }
   window.addEventListener("hashchange", handleHash);
 
+  // ---------- なかまガチャ（🔮キラ石だけで引ける。お金は使えない） ----------
+  function kiraInfo() {
+    const g = state.gacha, since = g.since || 0, sinceDay = startOfDay(since);
+    const days = {};
+    const D = (k) => (days[k] = days[k] || { rec: 0, mis: 0, game: 0 });
+    state.records.forEach((r) => { if (!r || r.type !== "save" || r.t < since) return; D(dkey(r.t)).rec += KIRA.perRecord + (r.proof === "squat" ? KIRA.squat : 0); });
+    Object.keys(state.missionDone).forEach((k) => { if (parseKey(k) < sinceDay) return; D(k).mis += (state.missionDone[k] || []).length * KIRA.perMission; });
+    Object.keys(state.gameDay).forEach((k) => { const gd = state.gameDay[k]; if (gd && +gd.kira > 0) D(k).game += +gd.kira; });
+    const tk = dkey(now());
+    let earned = 0, today = { rec: 0, mis: 0, game: 0, total: 0 };
+    Object.keys(days).forEach((k) => {
+      const d = days[k], rec = Math.min(KIRA.recordCap, d.rec), game = Math.min(KIRA.gameCap, d.game);
+      const total = Math.min(KIRA.dailyCap, rec + d.mis + game);
+      earned += total;
+      if (k === tk) today = { rec, mis: d.mis, game, total };
+    });
+    const bal = earned + g.bonus - g.spent;
+    return { earned, bonus: g.bonus, spent: g.spent, balance: Math.max(0, bal), debt: Math.max(0, -bal), today, cap: KIRA.dailyCap };
+  }
+  function rnd01() { try { const a = new Uint32Array(1); crypto.getRandomValues(a); return a[0] / 4294967296; } catch (e) { return Math.random(); } }
+  function drawRarity(rates, u) {
+    let acc = 0;
+    for (let i = 0; i < rates.length; i++) { acc += rates[i]; if (u * 100 < acc) return i; }
+    for (let i = rates.length - 1; i >= 0; i--) if (rates[i] > 0) return i;
+    return 0;
+  }
+  function drawChar(sr, rnd) {
+    const r = drawRarity(sr ? GACHA_RATES_SR : GACHA_RATES, rnd());
+    const pool = GCArt.CHARACTERS.filter((c) => c.rarity === r);
+    return pool[Math.min(pool.length - 1, Math.floor(rnd() * pool.length))];
+  }
+  function gachaPull(n, rnd) {
+    n = n === 10 ? 10 : n === 1 ? 1 : 0;
+    if (!n || !window.GCArt) return null;
+    const cost = GACHA_COST[n], k = kiraInfo();
+    if (k.balance < cost) return { error: "キラ石が足りません（あと " + fmt(cost - k.balance) + "）" };
+    rnd = typeof rnd === "function" ? rnd : rnd01;
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const c = drawChar(n === 10 && i === 9, rnd); // 10回引くと10回目はスーパーレア以上
+      const had = charOwned(c.id);
+      const e = Object.assign({}, charEntry(c.id));
+      e.n += 1;
+      let shards = 0;
+      if (had) { shards = SHARD_DUP[c.rarity]; e.shards += shards; }
+      state.chars[c.id] = e;
+      if (!state.seenChars.includes(c.id)) state.seenChars.push(c.id);
+      out.push({ id: c.id, rarity: c.rarity, isNew: !had, shards });
+    }
+    state.gacha.spent += cost;
+    state.gacha.pulls += n;
+    state.gacha.log.unshift({ t: now(), n, ids: out.map((o) => o.id) });
+    state.gacha.log = state.gacha.log.slice(0, 30);
+    save();
+    afterChange({ noRender: true, silent: true });
+    return { results: out, cost };
+  }
+  function gachaSimulate(n, ten) {
+    const counts = GACHA_RATES.map(() => 0);
+    for (let i = 0; i < n; i++) counts[drawRarity(ten ? GACHA_RATES_SR : GACHA_RATES, rnd01())]++;
+    return counts;
+  }
+  function powerUp(id) {
+    if (!charOwned(id)) return false;
+    const e = Object.assign({}, charEntry(id));
+    if (e.star >= STAR_MAX) return false;
+    const cost = STAR_COST[e.star];
+    if (e.shards < cost) return false;
+    e.shards -= cost; e.star += 1;
+    state.chars[id] = e;
+    save();
+    return true;
+  }
+  const rarOf = (c) => GCArt.RARITIES[c.rarity || 0];
+  const rarBadge = (c) => '<span class="rar r' + (c.rarity || 0) + '">' + rarOf(c).s + "</span>";
+  const starsHTML = (n) => '<span class="stars" aria-label="★' + n + '">' + "★".repeat(n) + '<span class="off">' + "★".repeat(STAR_MAX - n) + "</span></span>";
+  const pct = (v) => (v >= 1 ? v.toFixed(2) : v.toFixed(3)).replace(/\.?0+$/, "") + "%";
+  function charsSectionHTML(lv) {
+    const owned = unlockedChars(), k = kiraInfo();
+    const list = owned.slice().sort((a, b) => (b.id === state.selectedChar) - (a.id === state.selectedChar) || b.rarity - a.rarity).slice(0, 9);
+    return '<div class="sec-title"><span>なかま</span><span class="small faint num">' + owned.length + " / " + GCArt.CHARACTERS.length + "</span></div>" +
+      '<div class="card nakama-card"><div class="between"><div><span class="small muted">キラ石</span><div class="kira-bal">🔮 <b class="num">' + fmt(k.balance) + '</b></div></div><div style="text-align:right"><span class="small muted">今日ためた</span><div class="num"><b>' + k.today.total + "</b> / " + KIRA.dailyCap + "</div></div></div>" +
+      '<div class="chars" style="margin-top:12px">' + list.map((c) => { const sel = c.id === state.selectedChar; return '<button type="button" class="char r' + c.rarity + (sel ? " sel" : "") + '" data-act="char" data-id="' + c.id + '" aria-pressed="' + sel + '">' + rarBadge(c) + GCArt.charSvg(c.id, lv, { size: 54 }) + '<span class="c-n">' + esc(c.name) + '</span><span class="c-s">' + (sel ? "パートナー" : starsHTML(charEntry(c.id).star)) + "</span></button>"; }).join("") + "</div>" +
+      '<div class="actions two"><button type="button" class="btn primary" data-act="gacha">🔮 なかまガチャ</button><button type="button" class="btn" data-act="zukan">📖 なかま図鑑</button></div>' +
+      '<p class="small faint" style="margin:10px 0 0">パートナーのレアリティと★で、ゲームが少し有利になります（いまの有利 +' + Math.round(partnerBonus() * 100) + "%）。</p></div>";
+  }
+  function machineHTML() {
+    const caps = ["#f7b6c8", "#9fd3f2", "#ffe27a", "#b9a3e3", "#a9dc7c", "#ffb347", "#f6c6ea", "#7cc6e8", "#ff9a76"];
+    return '<div class="ga-machine" aria-hidden="true"><div class="ga-dome">' + caps.map((c, i) => '<i style="background:' + c + ";left:" + (12 + (i % 4) * 20 + (i > 3 ? 8 : 0)) + "%;bottom:" + (8 + Math.floor(i / 4) * 22) + '%"></i>').join("") + '</div><div class="ga-base"><span class="ga-knob"></span><span class="ga-slot"></span></div></div>';
+  }
+  function openGacha() {
+    if (!window.GCArt) return;
+    const body = openLayer("なかまガチャ");
+    body.innerHTML = '<div class="ga-wrap"><div class="ga-top"><div class="ga-bal">🔮 <b class="num" id="ga-bal"></b><small>キラ石</small></div><div class="small" id="ga-today"></div></div>' + machineHTML() +
+      '<div class="ga-btns"><button type="button" class="ga-btn one" data-g="1"><b>1回ひく</b><small>🔮 ' + GACHA_COST[1] + "</small></button>" +
+      '<button type="button" class="ga-btn ten" data-g="10"><b>10回ひく</b><small>🔮 ' + GACHA_COST[10] + "・10回目はスーパーレア以上</small></button></div>" +
+      '<div class="ga-links"><button type="button" data-g="rates">📊 提供割合（確率）</button><button type="button" data-g="how">🔮 キラ石のため方</button><button type="button" data-g="zukan">📖 図鑑</button></div>' +
+      '<p class="ga-note">キラ石はアプリの中で我慢・ミッション・ゲームの勝利でたまる石です。<b>お金で買うことはできません</b>。なかまを全部そろえても特別なごほうびはありません（コンプリート報酬なし）。</p>' +
+      '<div class="ga-panel" id="ga-panel" hidden></div></div>';
+    const refresh = () => {
+      const k = kiraInfo();
+      $("#ga-bal", body).textContent = fmt(k.balance);
+      $("#ga-today", body).innerHTML = "今日ためた <b class=\"num\">" + k.today.total + "</b> / " + KIRA.dailyCap + (k.debt ? '<br><span class="small">（取り消した記録の分 ' + k.debt + " を先にためます）</span>" : "");
+      $$("[data-g='1'],[data-g='10']", body).forEach((b) => { b.disabled = k.balance < GACHA_COST[b.dataset.g]; });
+    };
+    refresh();
+    body.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-g]"); if (!b) return;
+      const g = b.dataset.g;
+      if (g === "1" || g === "10") { const r = gachaPull(+g); if (!r) return; if (r.error) { toast(r.error); return; } playPull(body, r.results, refresh); }
+      else if (g === "rates") showPanel(body, ratesHTML());
+      else if (g === "how") showPanel(body, howHTML());
+      else if (g === "zukan") openZukan();
+      else if (g === "close-panel") { $("#ga-panel", body).hidden = true; refresh(); }
+      else if (g === "again1" || g === "again10") { const n = g === "again1" ? 1 : 10; const r = gachaPull(n); if (!r) return; if (r.error) { toast(r.error); return; } playPull(body, r.results, refresh); }
+    });
+  }
+  function showPanel(body, html) { const p = $("#ga-panel", body); p.innerHTML = '<div class="ga-sheet">' + html + '<button type="button" class="btn block" data-g="close-panel" style="margin-top:12px">閉じる</button></div>'; p.hidden = false; p.scrollTop = 0; }
+  function ratesHTML() {
+    const R = GCArt.RARITIES, cnt = R.map((r) => GCArt.CHARACTERS.filter((c) => c.rarity === r.id).length);
+    const row = (rates) => R.map((r, i) => rates[i] > 0 ? "<tr><td>" + rarBadge({ rarity: i }) + " " + r.n + '</td><td class="num">' + pct(rates[i]) + '</td><td class="num">' + cnt[i] + '種</td><td class="num">' + pct(rates[i] / cnt[i]) + "</td></tr>" : "").join("");
+    const head = "<tr><th>レアリティ</th><th>確率</th><th>種類</th><th>1種あたり</th></tr>";
+    return '<h3 id="rates-title">提供割合（確率）</h3><p class="small muted">1回ひくごとに、下の確率でレアリティが決まり、同じレアリティの中からどのなかまも同じ確率で出ます。</p>' +
+      '<p class="small"><b>1回ひく／10回ひくの1〜9回目</b></p><table class="ga-table" id="rates-normal">' + head + row(GACHA_RATES) + "</table>" +
+      '<p class="small" style="margin-top:12px"><b>10回ひくの10回目（スーパーレア以上確定）</b></p><table class="ga-table" id="rates-sr">' + head + row(GACHA_RATES_SR) + "</table>" +
+      '<details class="ga-all"><summary>なかま別の確率（全' + GCArt.CHARACTERS.length + "種）</summary>" + R.map((r, i) => '<p class="small"><b>' + r.n + "</b>（各 " + pct(GACHA_RATES[i] / cnt[i]) + (GACHA_RATES_SR[i] ? "／10回目 " + pct(GACHA_RATES_SR[i] / cnt[i]) : "") + "）：" + GCArt.CHARACTERS.filter((c) => c.rarity === i).map((c) => esc(c.name)).join("、") + "</p>").join("") + "</details>" +
+      '<p class="small faint">かぶったなかまは「かけら」になり（ノーマル1〜神話10）、集めると★（最大' + STAR_MAX + "）を上げられます。キラ石はお金で買えません。</p>";
+  }
+  function howHTML() {
+    const k = kiraInfo();
+    return '<h3>🔮 キラ石のため方</h3><table class="ga-table"><tr><td>我慢を1回記録</td><td class="num">+' + KIRA.perRecord + "（スクワット証明 +" + KIRA.squat + "）</td></tr><tr><td>ミッション達成（全部クリアも）</td><td class=\"num\">+" + KIRA.perMission + "</td></tr><tr><td>ゲームに勝つ</td><td class=\"num\">弱い+" + KIRA.game.easy + "・中+" + KIRA.game.normal + "・強い+" + KIRA.game.hard + "・ウルトラ最強+" + KIRA.game.ultra + "</td></tr></table>" +
+      '<p class="small muted">1日の上限：記録 ' + KIRA.recordCap + "・ゲーム " + KIRA.gameCap + "・合計 " + KIRA.dailyCap + "。ゲームだけでは貯金より速くたまらないようにしています。記録を取り消すと、その分のキラ石も減ります。</p>" +
+      '<p class="small"><b>今日</b>：記録 ' + k.today.rec + "・ミッション " + k.today.mis + "・ゲーム " + k.today.game + " ＝ <b>" + k.today.total + "</b> / " + KIRA.dailyCap + "</p>" +
+      '<p class="small muted">はじめてボーナス：' + k.bonus + "（v3.1から）・これまで使った：" + fmt(k.spent) + "</p>";
+  }
+  function playPull(body, results, refresh) {
+    const p = $("#ga-panel", body);
+    const top = Math.max.apply(null, results.map((r) => r.rarity));
+    const reduce = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    p.hidden = false;
+    p.innerHTML = '<div class="ga-anim r' + top + '" id="ga-anim"><div class="ga-cap"><i class="top"></i><i class="bot"></i></div><div class="ga-flash"></div><p class="ga-tap">タップでスキップ</p></div>';
+    sound("coin"); haptic(20);
+    let shown = false;
+    const show = () => {
+      if (shown || !document.contains(p)) return; shown = true;
+      const lv = xpInfo().lv;
+      p.innerHTML = '<div class="ga-res"><h3>' + (top >= 4 ? "✨ " + GCArt.RARITIES[top].n + "が出た！" : results.length > 1 ? "10回の結果" : "結果") + '</h3><div class="ga-cards' + (results.length === 1 ? " one" : "") + '" id="ga-cards">' +
+        results.map((r, i) => { const c = GCArt.charById(r.id); return '<div class="ga-card r' + r.rarity + '" style="animation-delay:' + (reduce ? 0 : i * 110) + 'ms" data-cid="' + r.id + '">' + rarBadge(c) + (r.isNew ? '<span class="ga-new">NEW</span>' : "") + GCArt.charSvg(c.id, lv, { size: results.length === 1 ? 120 : 56 }) + '<span class="c-n">' + esc(c.name) + "</span>" + (r.shards ? '<span class="ga-shard">かけら+' + r.shards + "</span>" : '<span class="ga-shard new">なかまに！</span>') + "</div>"; }).join("") +
+        '</div><div class="actions two"><button type="button" class="btn" data-g="close-panel">もどる</button><button type="button" class="btn primary" data-g="' + (results.length === 1 ? "again1" : "again10") + '"' + (kiraInfo().balance < GACHA_COST[results.length] ? " disabled" : "") + ">もう" + results.length + "回（🔮" + GACHA_COST[results.length] + "）</button></div>" +
+        '<button type="button" class="btn block ghost" data-g="zukan" style="margin-top:8px">📖 図鑑でパートナーをえらぶ</button></div>';
+      if (top >= 4) { sound("fanfare"); haptic([20, 60, 20]); }
+      refresh();
+    };
+    const anim = $("#ga-anim", p);
+    anim.addEventListener("click", show);
+    if (reduce) show(); else setTimeout(show, top >= 4 ? 2300 : 1600);
+  }
+  function openZukan() {
+    if (!window.GCArt) return;
+    const body = openLayer("なかま図鑑");
+    let filter = -1;
+    const render = () => {
+      const lv = xpInfo().lv, owned = unlockedChars().length;
+      const list = GCArt.CHARACTERS.filter((c) => filter < 0 || c.rarity === filter);
+      body.innerHTML = '<div class="zk-wrap"><div class="between"><div><b class="num" style="font-size:20px">' + owned + "</b> / " + GCArt.CHARACTERS.length + ' <span class="small">なかま</span></div><div class="small">🔮 <b class="num">' + fmt(kiraInfo().balance) + '</b>　<button type="button" class="zk-link" data-z="gacha">ガチャへ</button></div></div>' +
+        '<div class="zk-filter">' + [-1].concat(GCArt.RARITIES.map((r) => r.id)).map((id) => '<button type="button" data-zf="' + id + '" aria-pressed="' + (filter === id) + '">' + (id < 0 ? "すべて" : GCArt.RARITIES[id].n) + "</button>").join("") + "</div>" +
+        '<div class="zk-grid">' + list.map((c) => {
+          const ok = charOwned(c.id), e = charEntry(c.id), sel = c.id === state.selectedChar;
+          return '<button type="button" class="zk-card r' + c.rarity + (ok ? "" : " locked") + (sel ? " sel" : "") + '" data-zc="' + c.id + '">' + rarBadge(c) + GCArt.charSvg(c.id, ok ? lv : 1, { size: 58, silhouette: !ok }) + '<span class="c-n">' + (ok ? esc(c.name) : "？？？") + '</span><span class="c-s">' + (ok ? (sel ? "パートナー" : starsHTML(e.star)) : c.special ? "🔒 条件" : "ガチャ") + "</span></button>";
+        }).join("") + '</div><p class="small faint" style="margin-top:12px">全部そろえても特別なごほうびはありません。好きななかまをパートナーにしてください。</p><div class="ga-panel" id="zk-panel" hidden></div></div>';
+    };
+    const detail = (id) => {
+      const c = GCArt.charById(id), ok = charOwned(id), e = charEntry(id), lv = xpInfo().lv, sel = id === state.selectedChar;
+      const cost = STAR_COST[e.star] || 0, bonus = RARITY_BONUS[c.rarity] + (e.star - 1) * 0.01;
+      const p = $("#zk-panel", body);
+      p.innerHTML = '<div class="ga-sheet zk-detail r' + c.rarity + '"><div class="zk-art">' + GCArt.charSvg(id, ok ? lv : 1, { size: 130, silhouette: !ok }) + "</div>" +
+        "<h3>" + rarBadge(c) + " " + (ok ? esc(c.name) : "？？？") + "</h3>" +
+        '<p class="small muted">' + rarOf(c).n + (ok ? "・" + starsHTML(e.star) : "") + "</p>" +
+        (ok ? '<p class="small">' + esc(c.desc) + "</p>" : '<p class="small">' + (c.special ? "🔒 " + esc(c.how) + "と会えます（ガチャでも出ます）" : "なかまガチャで会えます") + "</p>") +
+        (ok ? '<div class="adv-box">パートナーにするとゲームの有利 <b>+' + Math.round(bonus * 100) + "%</b>（レベルの有利に足されます。上限は同じ）</div>" +
+          '<div class="zk-shard">かけら <b class="num" id="zk-shards">' + e.shards + "</b>" + (e.star < STAR_MAX ? " / ★" + (e.star + 1) + "まで " + cost : "（★MAX）") + "</div>" +
+          '<div class="actions two"><button type="button" class="btn" data-z="up" data-id="' + id + '"' + (e.star >= STAR_MAX || e.shards < cost ? " disabled" : "") + ">★を上げる</button>" +
+          '<button type="button" class="btn primary" data-z="partner" data-id="' + id + '"' + (sel ? " disabled" : "") + ">" + (sel ? "パートナー中" : "パートナーにする") + "</button></div>" : "") +
+        '<button type="button" class="btn block ghost" data-z="close" style="margin-top:10px">閉じる</button></div>';
+      p.hidden = false;
+    };
+    render();
+    body.addEventListener("click", (e) => {
+      const f = e.target.closest("[data-zf]"); if (f) { filter = +f.dataset.zf; render(); return; }
+      const c = e.target.closest("[data-zc]"); if (c) { detail(c.dataset.zc); return; }
+      const z = e.target.closest("[data-z]"); if (!z) return;
+      const act = z.dataset.z, id = z.dataset.id;
+      if (act === "close") { render(); }
+      else if (act === "gacha") openGacha();
+      else if (act === "partner" && charOwned(id)) { state.selectedChar = id; save(); toast(esc(GCArt.charById(id).name) + "がパートナーになりました"); render(); detail(id); }
+      else if (act === "up") { if (powerUp(id)) { sound("coin"); haptic(20); toast(esc(GCArt.charById(id).name) + "が ★" + charEntry(id).star + " になりました"); render(); detail(id); } }
+    });
+  }
+
   // ---------- events ----------
   document.addEventListener("click", (e) => {
     const tab = e.target.closest(".tab");
@@ -2209,7 +2451,9 @@
       case "wish-keep": resolveWish(id, "keep"); break;
       case "wish-bought": resolveWish(id, "bought"); break;
       case "wish-del": confirmSheet("リストから消しますか？", "貯金にはなりません（24時間たって「やめた」を押すと貯金になります）。", "消す", () => resolveWish(id, "del")); break;
-      case "char": if (charUnlocked(id)) { state.selectedChar = id; save(); renderGrowth(); toast(esc(GCArt.charById(id).name) + "といっしょに進みます"); } else toast("🔒 " + esc(GCArt.charById(id).how) + "と会えます"); break;
+      case "gacha": openGacha(); break;
+      case "zukan": openZukan(); break;
+      case "char": if (charOwned(id)) { state.selectedChar = id; save(); renderGrowth(); toast(esc(GCArt.charById(id).name) + "といっしょに進みます"); } else toast("🔒 " + esc(GCArt.charById(id).how) + "と会えます"); break;
       case "go-games": go("games"); break;
       case "game": openGameMenu(b.dataset.game); break;
       case "item-menu": itemMenu(id); break;
@@ -2280,6 +2524,7 @@
     get state() { return state; },
     load(s) { state = migrate(JSON.parse(JSON.stringify(s))); save(); shownTotal = null; if (state.onboarded) hideOnboarding(); renderAll(); if (state.onboarded) afterChange({ silent: true, noRender: true }); },
     totals, streakInfo, xpInfo, missionStatus, goalProgress, verifyMap,
+    kiraInfo, charOwned, partnerBonus, gacha: { rates: () => ({ normal: GACHA_RATES.slice(), sr: GACHA_RATES_SR.slice(), cost: Object.assign({}, GACHA_COST) }), pull: (n, rnd) => gachaPull(n, rnd), simulate: (n, ten) => gachaSimulate(n, ten), powerUp: (id) => powerUp(id), open: () => openGacha(), zukan: () => openZukan() },
     favorites, suggestion, advantage, unlockedChars, forestTrees, startGame, closeLayer, go, GAMES, migrate: (s) => migrate(JSON.parse(JSON.stringify(s))),
     addSave: (o) => addSave(o),
     reportBlob: () => new Promise((res) => drawReport(weekStart(now())).toBlob(res, "image/png")),
