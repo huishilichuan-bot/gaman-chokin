@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#F5F3EE" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#0E1113" media="(prefers-color-scheme: dark)" />
+  <meta name="color-scheme" content="light dark" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="我慢貯金" />
+  <meta name="description" content="コンビニ、コーヒー、衝動買い。我慢した小さな出費を「貯金」として見える化するアプリ。データはこの端末にだけ保存されます。" />
+  <meta name="format-detection" content="telephone=no" />
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32.png" />
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+  <title>我慢貯金</title>
+  <link rel="stylesheet" href="./styles.css?v=1.0.0" />
+</head>
+<body>
+  <div id="app" aria-live="off">
+    <header class="topbar" id="topbar">
+      <div class="brand">
+        <img class="brand-icon" src="./icons/icon-192.png" width="30" height="30" alt="" />
+        <span class="brand-name">我慢貯金</span>
+      </div>
+      <div class="top-pills">
+        <button type="button" class="pill" id="pill-level" aria-label="レベル">Lv.<b id="lv-num">1</b></button>
+        <button type="button" class="pill" id="pill-streak" aria-label="連続日数"><span class="pill-ico" aria-hidden="true"></span><b id="streak-num">0</b>日</button>
+      </div>
+    </header>
+    <main id="main" tabindex="-1">
+      <section class="view active" id="view-home" data-view="home" aria-label="ホーム"></section>
+      <section class="view" id="view-stats" data-view="stats" aria-label="分析"></section>
+      <section class="view" id="view-goals" data-view="goals" aria-label="目標"></section>
+      <section class="view" id="view-growth" data-view="growth" aria-label="実績"></section>
+      <section class="view" id="view-settings" data-view="settings" aria-label="設定"></section>
+    </main>
+    <nav class="tabbar" id="tabbar" aria-label="メインメニュー"></nav>
+  </div>
+  <div id="onboarding" class="onboarding" hidden></div>
+  <div id="sheet-root"></div>
+  <div id="toast-root" class="toast-root" role="status" aria-live="polite"></div>
+  <div id="fx-root" aria-hidden="true"></div>
+  <noscript><p style="padding:24px">このアプリを使うにはJavaScriptを有効にしてください。</p></noscript>
+  <script src="./app.js?v=1.0.0" defer></script>
+</body>
+</html>
